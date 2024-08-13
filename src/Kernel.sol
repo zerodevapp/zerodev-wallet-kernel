@@ -17,9 +17,6 @@ import {
     PassFlag,
     SKIP_SIGNATURE
 } from "./core/ValidationManager.sol";
-import {HookManager} from "./core/HookManager.sol";
-import {ExecutorManager} from "./core/ExecutorManager.sol";
-import {SelectorManager} from "./core/SelectorManager.sol";
 import {IModule, IValidator, IHook, IExecutor, IFallback, IPolicy, ISigner} from "./interfaces/IERC7579Modules.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 import {ExecLib, ExecMode, CallType, ExecType, ExecModeSelector, ExecModePayload} from "./utils/ExecLib.sol";
