@@ -37,7 +37,8 @@ import {
     VALIDATION_MANAGER_STORAGE_SLOT,
     MAX_NONCE_INCREMENT_SIZE,
     ENABLE_TYPE_HASH,
-    KERNEL_WRAPPER_TYPE_HASH
+    KERNEL_WRAPPER_TYPE_HASH,
+    MAGIC_VALUE_SIG_REPLAYABLE
 } from "../types/Constants.sol";
 
 abstract contract ValidationManager is EIP712, SelectorManager, HookManager, ExecutorManager {
@@ -574,18 +575,25 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
-    function _checkPermissionSignature(PermissionId pId, address caller, bytes32 hash, bytes calldata sig)
-        internal
-        view
-        returns (bytes4)
-    {
+    function _checkPermissionSignature(
+        PermissionId pId,
+        address caller,
+        bytes32 hash,
+        bytes calldata sig,
+        bool isReplayable
+    ) internal view returns (bytes4) {
         (ISigner signer, ValidationData valdiationData, bytes calldata validatorSig) =
             _checkSignaturePolicy(pId, caller, hash, sig);
         (ValidAfter validAfter, ValidUntil validUntil,) = parseValidationData(ValidationData.unwrap(valdiationData));
         if (block.timestamp < ValidAfter.unwrap(validAfter) || block.timestamp > ValidUntil.unwrap(validUntil)) {
             return 0xffffffff;
         }
-        return signer.checkSignature(bytes32(PermissionId.unwrap(pId)), caller, _toWrappedHash(hash), validatorSig);
+        return signer.checkSignature(
+            bytes32(PermissionId.unwrap(pId)),
+            caller,
+            isReplayable ? keccak256(abi.encodePacked(hash, MAGIC_VALUE_SIG_REPLAYABLE)) : _toWrappedHash(hash),
+            validatorSig
+        );
     }
 
     function _toWrappedHash(bytes32 hash) internal view returns (bytes32) {

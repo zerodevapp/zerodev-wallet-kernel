@@ -39,7 +39,8 @@ import {
     CALLTYPE_DELEGATECALL,
     CALLTYPE_SINGLE,
     CALLTYPE_BATCH,
-    CALLTYPE_STATIC
+    CALLTYPE_STATIC,
+    MAGIC_VALUE_SIG_REPLAYABLE
 } from "./types/Constants.sol";
 
 contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager {
@@ -318,19 +319,27 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
         if (ValidatorLib.getType(vId) == VALIDATION_TYPE_ROOT) {
             vId = vs.rootValidator;
         }
+        bool isReplayable = sig.length >= 32 && bytes32(sig[0:32]) == MAGIC_VALUE_SIG_REPLAYABLE;
+        if (isReplayable) {
+            sig = sig[32:];
+        }
         if (address(vs.validationConfig[vId].hook) == address(0)) {
             revert InvalidValidator();
         }
         if (ValidatorLib.getType(vId) == VALIDATION_TYPE_VALIDATOR) {
             IValidator validator = ValidatorLib.getValidator(vId);
-            return validator.isValidSignatureWithSender(msg.sender, _toWrappedHash(hash), sig);
+            return validator.isValidSignatureWithSender(
+                msg.sender,
+                isReplayable ? keccak256(abi.encodePacked(hash, MAGIC_VALUE_SIG_REPLAYABLE)) : _toWrappedHash(hash),
+                sig
+            );
         } else {
             PermissionId pId = ValidatorLib.getPermissionId(vId);
             PassFlag permissionFlag = vs.permissionConfig[pId].permissionFlag;
             if (PassFlag.unwrap(permissionFlag) & PassFlag.unwrap(SKIP_SIGNATURE) != 0) {
                 revert PermissionNotAlllowedForSignature();
             }
-            return _checkPermissionSignature(pId, msg.sender, hash, sig);
+            return _checkPermissionSignature(pId, msg.sender, hash, sig, isReplayable);
         }
     }
 
