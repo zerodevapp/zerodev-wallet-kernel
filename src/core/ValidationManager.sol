@@ -302,8 +302,13 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         PackedUserOperation memory userOp = op;
         bytes calldata userOpSig = op.signature;
         unchecked {
+            if (userOpSig.length >= 32 && bytes32(userOpSig[0:32]) == MAGIC_VALUE_SIG_REPLAYABLE) {
+                // when replayable
+                userOpSig = op.signature[32:];
+                userOpHash = replayableUserOpHash(op, msg.sender); // NOTE : msg.sender will be entrypoint
+            }
             if (vMode == VALIDATION_MODE_ENABLE) {
-                (validationData, userOpSig) = _enableMode(vId, op.signature);
+                (validationData, userOpSig) = _enableMode(vId, userOpSig);
                 userOp.signature = userOpSig;
             }
 
@@ -328,6 +333,58 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
                 );
             }
         }
+    }
+
+    function replayableUserOpHash(PackedUserOperation calldata userOp, address entryPoint)
+        public
+        pure
+        returns (bytes32)
+    {
+        address sender = getSender(userOp);
+        uint256 nonce = userOp.nonce;
+        bytes32 hashInitCode = calldataKeccak(userOp.initCode);
+        bytes32 hashCallData = calldataKeccak(userOp.callData);
+        bytes32 accountGasLimits = userOp.accountGasLimits;
+        uint256 preVerificationGas = userOp.preVerificationGas;
+        bytes32 gasFees = userOp.gasFees;
+        bytes32 hashPaymasterAndData = calldataKeccak(userOp.paymasterAndData);
+
+        return keccak256(
+            abi.encode(
+                keccak256(
+                    abi.encode(
+                        sender,
+                        nonce,
+                        hashInitCode,
+                        hashCallData,
+                        accountGasLimits,
+                        preVerificationGas,
+                        gasFees,
+                        hashPaymasterAndData
+                    )
+                ),
+                entryPoint,
+                uint256(0)
+            )
+        );
+    }
+
+    function calldataKeccak(bytes calldata data) internal pure returns (bytes32 ret) {
+        assembly ("memory-safe") {
+            let mem := mload(0x40)
+            let len := data.length
+            calldatacopy(mem, data.offset, len)
+            ret := keccak256(mem, len)
+        }
+    }
+
+    function getSender(PackedUserOperation calldata userOp) internal pure returns (address) {
+        address data;
+        //read sender from userOp, which is first userOp member (saves 800 gas...)
+        assembly {
+            data := calldataload(userOp)
+        }
+        return address(uint160(data));
     }
 
     function _enableMode(ValidationId vId, bytes calldata packedData)
@@ -589,14 +646,46 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             return 0xffffffff;
         }
         return signer.checkSignature(
-            bytes32(PermissionId.unwrap(pId)),
-            caller,
-            isReplayable ? keccak256(abi.encodePacked(hash, MAGIC_VALUE_SIG_REPLAYABLE)) : _toWrappedHash(hash),
-            validatorSig
+            bytes32(PermissionId.unwrap(pId)), caller, _toWrappedHash(hash, isReplayable), validatorSig
         );
     }
 
-    function _toWrappedHash(bytes32 hash) internal view returns (bytes32) {
-        return _hashTypedData(keccak256(abi.encode(KERNEL_WRAPPER_TYPE_HASH, hash)));
+    function _toWrappedHash(bytes32 hash, bool isReplayable) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(KERNEL_WRAPPER_TYPE_HASH, hash));
+        return isReplayable ? _chainAgnosticHashTypedData(structHash) : _hashTypedData(structHash);
+    }
+
+    /// @dev Returns the EIP-712 domain separator.
+    function _buildChainAgnosticDomainSeparator() private view returns (bytes32 separator) {
+        // We will use `separator` to store the name hash to save a bit of gas.
+        bytes32 versionHash;
+        (string memory name, string memory version) = _domainNameAndVersion();
+        separator = keccak256(bytes(name));
+        versionHash = keccak256(bytes(version));
+        /// @solidity memory-safe-assembly
+        assembly {
+            let m := mload(0x40) // Load the free memory pointer.
+            mstore(m, _DOMAIN_TYPEHASH)
+            mstore(add(m, 0x20), separator) // Name hash.
+            mstore(add(m, 0x40), versionHash)
+            mstore(add(m, 0x60), 0x00) //  NOTE : user chainId == 0 as eip 7702 did
+            mstore(add(m, 0x80), address())
+            separator := keccak256(m, 0xa0)
+        }
+    }
+
+    function _chainAgnosticHashTypedData(bytes32 structHash) internal view virtual returns (bytes32 digest) {
+        // we don't do cache stuff here
+        digest = _buildChainAgnosticDomainSeparator();
+        /// @solidity memory-safe-assembly
+        assembly {
+            // Compute the digest.
+            mstore(0x00, 0x1901000000000000) // Store "\x19\x01".
+            mstore(0x1a, digest) // Store the domain separator.
+            mstore(0x3a, structHash) // Store the struct hash.
+            digest := keccak256(0x18, 0x42)
+            // Restore the part of the free memory slot that was overwritten.
+            mstore(0x3a, 0)
+        }
     }
 }
