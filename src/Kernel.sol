@@ -328,11 +328,7 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
         }
         if (ValidatorLib.getType(vId) == VALIDATION_TYPE_VALIDATOR) {
             IValidator validator = ValidatorLib.getValidator(vId);
-            return validator.isValidSignatureWithSender(
-                msg.sender,
-                isReplayable ? keccak256(abi.encodePacked(hash, MAGIC_VALUE_SIG_REPLAYABLE)) : _toWrappedHash(hash),
-                sig
-            );
+            return validator.isValidSignatureWithSender(msg.sender, _toWrappedHash(hash, isReplayable), sig);
         } else {
             PermissionId pId = ValidatorLib.getPermissionId(vId);
             PassFlag permissionFlag = vs.permissionConfig[pId].permissionFlag;
