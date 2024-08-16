@@ -34,7 +34,7 @@ abstract contract HookManager {
         if (!hook.isInitialized(address(this))) {
             // if hook is not installed, it should call onInstall
             hook.onInstall(hookData[1:]);
-        } else if (bytes1(hookData[0]) == bytes1(0xff)) {
+        } else if (hookData.length > 0 && bytes1(hookData[0]) == bytes1(0xff)) {
             // 0xff means you want to explicitly call install hook
             hook.onInstall(hookData[1:]);
         }
