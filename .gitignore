@@ -27,3 +27,5 @@ typechain-types/
 # zerodev orchestra
 log/
 .envrc
+
+settings.json
