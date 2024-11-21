@@ -22,7 +22,6 @@ struct ECDSAValidatorStorage {
 
 struct FlexCallData {
     uint32 offset;
-    uint32 length;
     bytes value;
 }
 
@@ -81,16 +80,31 @@ contract MultiChainFlexCallDataValidator is IValidator, IHook {
         bytes32 merkleRoot = bytes32(sig[65:97]);
         // if the signature is a dummy signature, then use dummyUserOpHash instead of real userOpHash
         if (keccak256(ecdsaSig) == keccak256(DUMMY_ECDSA_SIG)) {
-            (bytes32 dummyUserOpHash, bytes32[] memory proof) = abi.decode(sig[97:], (bytes32, bytes32[]));
+            (bytes32 dummyUserOpHash, bytes32[] memory proof, FlexCallData[] memory flexCallData) =
+                abi.decode(sig[97:], (bytes32, bytes32[], FlexCallData[]));
+
+            if (flexCallData.length > 0) {
+                PackedUserOperation memory _userOp = _toMemoryUserOp(userOp);
+
+                _userOp.callData = _replaceCallData(userOp.callData, flexCallData);
+
+                // just for proper gas estimation
+                bytes32 _useless = IEntryPoint(0x0000000071727De22E5E9d8BAf0edAc6f37da032).getUserOpHash(_userOp);
+            }
+
             require(MerkleProofLib.verify(proof, merkleRoot, dummyUserOpHash), "hash is not in proof");
             // otherwise, use real userOpHash
         } else {
             (bytes32[] memory proof, FlexCallData[] memory flexCallData) =
                 abi.decode(sig[97:], (bytes32[], FlexCallData[]));
-            PackedUserOperation memory _userOp = _toMemoryUserOp(userOp);
+            bytes32 modifiedUserOpHash = userOpHash;
+            if (flexCallData.length > 0) {
+                PackedUserOperation memory _userOp = _toMemoryUserOp(userOp);
 
-            _userOp.callData = _replaceCallData(userOp.callData, flexCallData);
-            bytes32 modifiedUserOpHash = IEntryPoint(0x0000000071727De22E5E9d8BAf0edAc6f37da032).getUserOpHash(_userOp);
+                _userOp.callData = _replaceCallData(userOp.callData, flexCallData);
+                _userOp.paymasterAndData = hex"";
+                modifiedUserOpHash = IEntryPoint(0x0000000071727De22E5E9d8BAf0edAc6f37da032).getUserOpHash(_userOp);
+            }
             require(MerkleProofLib.verify(proof, merkleRoot, modifiedUserOpHash), "hash is not in proof");
         }
         // simple ecdsa verification
@@ -174,10 +188,10 @@ contract MultiChainFlexCallDataValidator is IValidator, IHook {
         bytes memory modifiedCallData = originalCallData;
         for (uint256 i = 0; i < flexCallDataArray.length; i++) {
             FlexCallData memory flexData = flexCallDataArray[i];
-            require(flexData.offset + flexData.length <= originalCallData.length, "FlexCallData out of bounds");
+            require(flexData.offset + flexData.value.length <= originalCallData.length, "FlexCallData out of bounds");
             // Should not overwrite the first 4 bytes sig of the callData
             require(flexData.offset > 4, "FlexCallData offset too small");
-            for (uint256 j = 0; j < flexData.length && j < flexData.value.length; j++) {
+            for (uint256 j = 0; j < flexData.value.length && j < flexData.value.length; j++) {
                 modifiedCallData[flexData.offset + j] = flexData.value[j];
             }
         }
