@@ -9,6 +9,7 @@ import {ExecLib} from "../src/utils/ExecLib.sol";
 import {IHook} from "../src/interfaces/IERC7579Modules.sol";
 import {ValidatorLib, ValidationId, ValidationMode, ValidationType} from "../src/utils/ValidationTypeLib.sol";
 import {VALIDATION_MODE_ENABLE, VALIDATION_TYPE_VALIDATOR} from "../src/types/Constants.sol";
+import {ExecMode} from "../src/types/Types.sol";
 
 import "forge-std/console.sol";
 
@@ -49,7 +50,7 @@ contract ECDSAValidatorTest is KernelTestBase {
     function testExternalInteraction() external whenInitialized {
         vm.startPrank(owner);
         kernel.execute(
-            ExecLib.encodeSimpleSingle(),
+            ExecMode.wrap(bytes32(0)),
             ExecLib.encodeSingle(address(callee), 0, abi.encodeWithSelector(MockCallee.setValue.selector, 123))
         );
         vm.stopPrank();
