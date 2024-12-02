@@ -20,10 +20,9 @@ import {
     PassFlag
 } from "../utils/ValidationTypeLib.sol";
 
-import {CallType} from "../utils/ExecLib.sol";
 import {CALLTYPE_SINGLE, MODULE_TYPE_POLICY, MODULE_TYPE_SIGNER, MODULE_TYPE_VALIDATOR} from "../types/Constants.sol";
 
-import {PermissionId, getValidationResult} from "../types/Types.sol";
+import {PermissionId, getValidationResult, CallType} from "../types/Types.sol";
 import {_intersectValidationData} from "../utils/KernelValidationResult.sol";
 
 import {
