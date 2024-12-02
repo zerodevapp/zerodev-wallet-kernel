@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "../Kernel.sol";
 import "../factory/KernelFactory.sol";
 import "../factory/FactoryStaker.sol";
+import "solady_test/utils/TestPlus.sol";
 import "forge-std/Test.sol";
 import "../mock/MockValidator.sol";
 import "../mock/MockPolicy.sol";
@@ -19,6 +20,7 @@ import "../core/ValidationManager.sol";
 import "./TestBase/erc4337Util.sol";
 import "../types/Types.sol";
 import "../types/Structs.sol";
+import "solady/accounts/LibERC7579.sol";
 
 contract MockCallee {
     uint256 public value;
@@ -29,6 +31,10 @@ contract MockCallee {
         value = _value;
     }
 
+    function addValue(uint256 _value) public {
+        value += _value;
+    }
+
     function emitEvent(bool shouldFail) public {
         if (shouldFail) {
             revert("Hello");
@@ -37,7 +43,7 @@ contract MockCallee {
     }
 }
 
-abstract contract KernelTestBase is Test {
+abstract contract KernelTestBase is TestPlus, Test {
     address stakerOwner;
     Kernel kernel;
     KernelFactory factory;
@@ -566,8 +572,14 @@ abstract contract KernelTestBase is Test {
     }
 
     function encodeExecute(address _to, uint256 _amount, bytes memory _data) internal view returns (bytes memory) {
+        return abi.encodeWithSelector(kernel.execute.selector, bytes32(0), ExecLib.encodeSingle(_to, _amount, _data));
+    }
+
+    function encodeBatchExecute(Execution[] memory execs) internal view returns (bytes memory) {
         return abi.encodeWithSelector(
-            kernel.execute.selector, ExecLib.encodeSimpleSingle(), ExecLib.encodeSingle(_to, _amount, _data)
+            kernel.execute.selector,
+            LibERC7579.encodeMode(bytes1(0x01), bytes1(0x00), bytes4(0), bytes22(0)),
+            abi.encode(execs)
         );
     }
 
@@ -988,7 +1000,7 @@ abstract contract KernelTestBase is Test {
         ExecutorManager.ExecutorConfig memory config = kernel.executorConfig(mockExecutor);
         assertEq(address(config.hook), withHook ? address(mockHook) : address(1));
 
-        ExecMode mode = ExecLib.encodeSimpleSingle();
+        ExecMode mode = ExecMode.wrap(bytes32(0));
         bytes memory data =
             ExecLib.encodeSingle(address(callee), 0, abi.encodeWithSelector(MockCallee.setValue.selector, 123));
         mockExecutor.sudoDoExec(IERC7579Account(kernel), mode, data);
@@ -1016,7 +1028,7 @@ abstract contract KernelTestBase is Test {
         vm.expectRevert(abi.encodeWithSelector(Kernel.InvalidExecutor.selector));
         vm.startPrank(address(mockExecutor));
         kernel.executeFromExecutor(
-            ExecLib.encodeSimpleSingle(),
+            ExecMode.wrap(bytes32(0)),
             ExecLib.encodeSingle(address(callee), 0, abi.encodeWithSelector(MockCallee.setValue.selector, 123))
         );
         vm.stopPrank();
@@ -1086,5 +1098,24 @@ abstract contract KernelTestBase is Test {
         sig = abi.encodePacked(hex"02", PermissionId.unwrap(enabledPermission), hex"ff", sig);
         bytes4 res = kernel.isValidSignature(hash, sig);
         assertEq(res, bytes4(0x1626ba7e));
+    }
+
+    function testExecuteBatch(uint8 length) external whenInitialized {
+        vm.startPrank(address(entrypoint));
+        ExecMode mode = ExecMode.wrap(LibERC7579.encodeMode(bytes1(0x01), bytes1(0x00), bytes4(0), bytes22(0)));
+        Execution[] memory execs = new Execution[](length);
+        uint256 sum = 0;
+        for (uint256 i = 0; i < length; i++) {
+            uint256 random = _random() % 10000;
+            sum += random;
+            execs[i] = Execution({
+                target: address(callee),
+                value: 0,
+                callData: abi.encodeWithSelector(MockCallee.addValue.selector, random)
+            });
+        }
+        bytes memory data = abi.encode(execs);
+        kernel.execute(mode, data);
+        assertEq(callee.value(), sum);
     }
 }

@@ -1,3 +1,4 @@
 ExcessivelySafeCall/=lib/ExcessivelySafeCall/src/
 forge-std/=lib/forge-std/src/
 solady/=lib/solady/src/
+solady_test/=lib/solady/test/

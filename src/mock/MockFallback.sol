@@ -63,7 +63,7 @@ contract MockFallback is IFallback {
         valueStored = value;
         if (isExecutor) {
             IERC7579Account(msg.sender).executeFromExecutor(
-                ExecLib.encodeSimpleSingle(),
+                ExecMode.wrap(bytes32(0)),
                 ExecLib.encodeSingle(address(callee), 0, abi.encodeWithSelector(Callee.calleeTest.selector))
             );
         }
