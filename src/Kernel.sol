@@ -19,7 +19,8 @@ import {
 } from "./core/ValidationManager.sol";
 import {IModule, IValidator, IHook, IExecutor, IFallback, IPolicy, ISigner} from "./interfaces/IERC7579Modules.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
-import {ExecLib, ExecMode, CallType, ExecType, ExecModeSelector, ExecModePayload} from "./utils/ExecLib.sol";
+import {ExecLib} from "./utils/ExecLib.sol";
+import {ExecMode, CallType, ExecType, ExecModeSelector, ExecModePayload} from "./types/Types.sol";
 import {
     CALLTYPE_SINGLE,
     CALLTYPE_DELEGATECALL,
