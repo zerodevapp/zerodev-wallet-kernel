@@ -3,7 +3,8 @@ pragma solidity ^0.8.0;
 
 import {IERC7579Account} from "../interfaces/IERC7579Account.sol";
 import {IFallback} from "../interfaces/IERC7579Modules.sol";
-import {CallType, ExecType, ExecMode, ExecLib} from "../utils/ExecLib.sol";
+import {CallType, ExecType, ExecMode} from "../types/Types.sol";
+import {ExecLib} from "../utils/ExecLib.sol";
 import {EXEC_MODE_DEFAULT} from "../types/Constants.sol";
 
 contract Callee {
