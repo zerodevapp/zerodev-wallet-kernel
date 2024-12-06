@@ -38,6 +38,17 @@ MIT
 ## Addresses
 
 <details>
+<summary>v3.2</summary>
+
+| Name                 | Address                                    |
+| -------------------- | ------------------------------------------ |
+| Meta Factory         | [0xd703aaE79538628d27099B8c4f621bE4CCd142d5](https://contractscan.xyz/contract/0xd703aae79538628d27099b8c4f621be4ccd142d5) |
+| Factory              | [0x4600A1e70fB9e4C9A3feC6d9105f6807aDEACbe2](https://contractscan.xyz/contract/0x4600A1e70fB9e4C9A3feC6d9105f6807aDEACbe2) |
+| Kernel               | [0x97EBdCa9c606d493daD1bE10188Dd78cadB2a139](https://contractscan.xyz/contract/0x97EBdCa9c606d493daD1bE10188Dd78cadB2a139) |
+
+</details>
+
+<details>
 <summary>v3.1</summary>
 
 | Name                 | Address                                    |
