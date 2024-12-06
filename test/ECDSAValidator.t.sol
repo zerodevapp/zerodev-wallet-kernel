@@ -104,9 +104,8 @@ contract ECDSAValidatorTest is KernelTestBase {
                 keccak256(abi.encodePacked(kernel.execute.selector))
             )
         );
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", _buildDomainSeparator("Kernel", "0.3.0-beta", address(kernel)), hash)
-        );
+        bytes32 digest =
+            keccak256(abi.encodePacked("\x19\x01", _buildDomainSeparator("Kernel", "0.3.2", address(kernel)), hash));
         op.signature = encodeEnableSignature(
             validationConfig.hook,
             validationConfig.validatorData,
