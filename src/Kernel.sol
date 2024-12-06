@@ -151,7 +151,7 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
 
     function _domainNameAndVersion() internal pure override returns (string memory name, string memory version) {
         name = "Kernel";
-        version = "0.3.1";
+        version = "0.3.2";
     }
 
     receive() external payable {
@@ -370,7 +370,7 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
             }
             _installValidation(vId, config, validatorData, hookData);
             if (selectorData.length == 4) {
-                // NOTE: we don't allow configure on selector data on v3.1, but using bytes instead of bytes4 for selector data to make sure we are future proof
+                // NOTE: we don't allow configure on selector data on v3.1+, but using bytes instead of bytes4 for selector data to make sure we are future proof
                 _setSelector(vId, bytes4(selectorData[0:4]), true);
             }
         } else if (moduleType == MODULE_TYPE_EXECUTOR) {
@@ -529,7 +529,7 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
     }
 
     function accountId() external pure override returns (string memory accountImplementationId) {
-        return "kernel.advanced.v0.3.1";
+        return "kernel.advanced.v0.3.2";
     }
 
     function supportsExecutionMode(ExecMode mode) external pure override returns (bool) {
