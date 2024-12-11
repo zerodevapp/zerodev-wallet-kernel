@@ -49,6 +49,7 @@ struct SelectorDataFormatWithExecutorData {
     bytes hookInitData;
     bytes executorHookData;
 }
+
 struct InstallValidatorDataFormat {
     bytes validatorData;
     bytes hookData;
@@ -64,4 +65,3 @@ struct InstallFallbackDataFormat {
     bytes selectorData;
     bytes hookData;
 }
-

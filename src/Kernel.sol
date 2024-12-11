@@ -44,11 +44,7 @@ import {
     MAGIC_VALUE_SIG_REPLAYABLE
 } from "./types/Constants.sol";
 
-import {
-    InstallExecutorDataFormat,
-    InstallFallbackDataFormat,
-    InstallValidatorDataFormat
-} from "./types/Structs.sol";
+import {InstallExecutorDataFormat, InstallFallbackDataFormat, InstallValidatorDataFormat} from "./types/Structs.sol";
 
 contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager {
     error ExecutionReverted();
