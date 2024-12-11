@@ -21,6 +21,7 @@ import {
 } from "../utils/ValidationTypeLib.sol";
 
 import {CALLTYPE_SINGLE, MODULE_TYPE_POLICY, MODULE_TYPE_SIGNER, MODULE_TYPE_VALIDATOR} from "../types/Constants.sol";
+import {calldataKeccak, getSender} from "../utils/Utils.sol";
 
 import {PermissionId, getValidationResult, CallType} from "../types/Types.sol";
 import {_intersectValidationData} from "../utils/KernelValidationResult.sol";
@@ -605,26 +606,9 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         return isReplayable ? _chainAgnosticHashTypedData(structHash) : _hashTypedData(structHash);
     }
 
-    function calldataKeccak(bytes calldata data) internal pure returns (bytes32 ret) {
-        assembly ("memory-safe") {
-            let mem := mload(0x40)
-            let len := data.length
-            calldatacopy(mem, data.offset, len)
-            ret := keccak256(mem, len)
-        }
-    }
-
-    function getSender(PackedUserOperation calldata userOp) internal pure returns (address) {
-        address data;
-        //read sender from userOp, which is first userOp member (saves 800 gas...)
-        assembly {
-            data := calldataload(userOp)
-        }
-        return address(uint160(data));
-    }
-
+    // chain agnostic internal functions
     /// @dev Returns the EIP-712 domain separator.
-    function _buildChainAgnosticDomainSeparator() private view returns (bytes32 separator) {
+    function _buildChainAgnosticDomainSeparator() internal view returns (bytes32 separator) {
         // We will use `separator` to store the name hash to save a bit of gas.
         bytes32 versionHash;
         (string memory name, string memory version) = _domainNameAndVersion();
@@ -642,7 +626,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
-    function _chainAgnosticHashTypedData(bytes32 structHash) internal view virtual returns (bytes32 digest) {
+    function _chainAgnosticHashTypedData(bytes32 structHash) internal view returns (bytes32 digest) {
         // we don't do cache stuff here
         digest = _buildChainAgnosticDomainSeparator();
         /// @solidity memory-safe-assembly

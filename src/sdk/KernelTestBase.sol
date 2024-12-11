@@ -211,7 +211,7 @@ abstract contract KernelTestBase is TestPlus, Test {
 
         bytes32 digest;
         if (isReplayable) {
-            digest = _chainAgnosticHashTypedData(address(kernel), "Kernel", "0.3.2", hash);
+            digest = chainAgnosticHashTypedData(address(kernel), "Kernel", "0.3.2", hash);
         } else {
             digest =
                 keccak256(abi.encodePacked("\x19\x01", _buildDomainSeparator("Kernel", "0.3.2", address(kernel)), hash));
@@ -1184,7 +1184,7 @@ abstract contract KernelTestBase is TestPlus, Test {
     }
 
     /// @dev Returns the EIP-712 domain separator.
-    function _buildChainAgnosticDomainSeparator(address addr, string memory name, string memory version)
+    function buildChainAgnosticDomainSeparator(address addr, string memory name, string memory version)
         private
         view
         returns (bytes32 separator)
@@ -1207,14 +1207,14 @@ abstract contract KernelTestBase is TestPlus, Test {
         }
     }
 
-    function _chainAgnosticHashTypedData(address addr, string memory name, string memory version, bytes32 structHash)
+    function chainAgnosticHashTypedData(address addr, string memory name, string memory version, bytes32 structHash)
         internal
         view
         virtual
         returns (bytes32 digest)
     {
         // we don't do cache stuff here
-        digest = _buildChainAgnosticDomainSeparator(addr, name, version);
+        digest = buildChainAgnosticDomainSeparator(addr, name, version);
         /// @solidity memory-safe-assembly
         assembly {
             // Compute the digest.
