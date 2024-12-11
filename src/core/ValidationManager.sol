@@ -406,7 +406,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
     {
         UserOpSigDataFormatEnable calldata enableData;
         assembly {
-            enableData := add(packedData, 20)
+            enableData := add(packedData.offset, 20)
         }
         address hook = address(bytes20(packedData[0:20]));
         validationData = _enableValidationWithSig(vId, hook, enableData, isReplayable);
@@ -414,26 +414,17 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         return (validationData, enableData.userOpSig);
     }
 
-    function _enableValidationWithSig(ValidationId vId, bytes calldata packedData, bool isReplayable)
-        internal
-        returns (ValidationData validationData)
-    {
-        bytes calldata enableSig;
-        (
-            ValidationConfig memory config,
-            bytes calldata validatorData,
-            bytes calldata hookData,
-            bytes calldata selectorData,
-            bytes32 digest
-        ) = _enableDigest(vId, packedData, isReplayable);
-        assembly {
-            enableSig.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 116)))
-            enableSig.length := calldataload(sub(enableSig.offset, 32))
-        }
-        validationData = _checkEnableSig(digest, enableSig);
-        _installValidation(vId, config, validatorData, hookData);
-        _configureSelector(selectorData);
-        _setSelector(vId, bytes4(selectorData[0:4]), true);
+    function _enableValidationWithSig(
+        ValidationId vId,
+        address hook,
+        UserOpSigDataFormatEnable calldata enableData,
+        bool isReplayable
+    ) internal returns (ValidationData validationData) {
+        (ValidationConfig memory config, bytes32 digest) = _enableDigest(vId, hook, enableData, isReplayable);
+        validationData = _checkEnableSig(digest, enableData.enableSig);
+        _installValidation(vId, config, enableData.validatorData, enableData.hookData);
+        _configureSelector(enableData.selectorData);
+        _setSelector(vId, bytes4(enableData.selectorData[0:4]), true);
     }
 
     function _checkEnableSig(bytes32 digest, bytes calldata enableSig)
@@ -499,38 +490,25 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
-    function _enableDigest(ValidationId vId, bytes calldata packedData, bool isReplayable)
-        internal
-        view
-        returns (
-            ValidationConfig memory config,
-            bytes calldata validatorData,
-            bytes calldata hookData,
-            bytes calldata selectorData,
-            bytes32 digest
-        )
-    {
+    function _enableDigest(
+        ValidationId vId,
+        address hook,
+        UserOpSigDataFormatEnable calldata enableData,
+        bool isReplayable
+    ) internal view returns (ValidationConfig memory config, bytes32 digest) {
         ValidationStorage storage state = _validationStorage();
-        config.hook = IHook(address(bytes20(packedData[0:20])));
+        config.hook = IHook(hook);
         config.nonce = state.currentNonce;
 
-        assembly {
-            validatorData.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 20)))
-            validatorData.length := calldataload(sub(validatorData.offset, 32))
-            hookData.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 52)))
-            hookData.length := calldataload(sub(hookData.offset, 32))
-            selectorData.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 84)))
-            selectorData.length := calldataload(sub(selectorData.offset, 32))
-        }
         bytes32 structHash = keccak256(
             abi.encode(
                 ENABLE_TYPE_HASH,
                 ValidationId.unwrap(vId),
                 state.currentNonce,
                 config.hook,
-                keccak256(validatorData),
-                keccak256(hookData),
-                keccak256(selectorData)
+                keccak256(enableData.validatorData),
+                keccak256(enableData.hookData),
+                keccak256(enableData.selectorData)
             )
         );
 
