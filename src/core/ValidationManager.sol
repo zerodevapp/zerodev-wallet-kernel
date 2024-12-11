@@ -301,14 +301,20 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         PackedUserOperation memory userOp = op;
         bytes calldata userOpSig = op.signature;
         unchecked {
-            if (userOpSig.length >= 32 && bytes32(userOpSig[0:32]) == MAGIC_VALUE_SIG_REPLAYABLE) {
-                // when replayable
-                userOpSig = op.signature[32:];
-                userOpHash = replayableUserOpHash(op, msg.sender); // NOTE : msg.sender will be entrypoint
-            }
-            if (vMode == VALIDATION_MODE_ENABLE) {
-                (validationData, userOpSig) = _enableMode(vId, userOpSig);
-                userOp.signature = userOpSig;
+            {
+                bool isReplayable;
+                if (userOpSig.length >= 32 && bytes32(userOpSig[0:32]) == MAGIC_VALUE_SIG_REPLAYABLE) {
+                    // when replayable
+                    userOpSig = userOpSig[32:];
+                    userOp.signature = userOpSig;
+                    isReplayable = true;
+                    userOpHash = replayableUserOpHash(op, msg.sender); // NOTE : msg.sender will be entrypoint
+                }
+
+                if (vMode == VALIDATION_MODE_ENABLE) {
+                    (validationData, userOpSig) = _enableMode(vId, userOpSig, isReplayable);
+                    userOp.signature = userOpSig;
+                }
             }
 
             ValidationType vType = ValidatorLib.getType(vId);
@@ -386,21 +392,29 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         return address(uint160(data));
     }
 
-    function _enableMode(ValidationId vId, bytes calldata packedData)
+    struct UserOpSigDataFormatEnable {
+        bytes validatorData;
+        bytes hookData;
+        bytes selectorData;
+        bytes enableSig;
+        bytes userOpSig;
+    }
+
+    function _enableMode(ValidationId vId, bytes calldata packedData, bool isReplayable)
         internal
         returns (ValidationData validationData, bytes calldata userOpSig)
     {
-        validationData = _enableValidationWithSig(vId, packedData);
-
+        UserOpSigDataFormatEnable calldata enableData;
         assembly {
-            userOpSig.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 148)))
-            userOpSig.length := calldataload(sub(userOpSig.offset, 32))
+            enableData := add(packedData, 20)
         }
+        address hook = address(bytes20(packedData[0:20]));
+        validationData = _enableValidationWithSig(vId, hook, enableData, isReplayable);
 
-        return (validationData, userOpSig);
+        return (validationData, enableData.userOpSig);
     }
 
-    function _enableValidationWithSig(ValidationId vId, bytes calldata packedData)
+    function _enableValidationWithSig(ValidationId vId, bytes calldata packedData, bool isReplayable)
         internal
         returns (ValidationData validationData)
     {
@@ -411,7 +425,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             bytes calldata hookData,
             bytes calldata selectorData,
             bytes32 digest
-        ) = _enableDigest(vId, packedData);
+        ) = _enableDigest(vId, packedData, isReplayable);
         assembly {
             enableSig.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 116)))
             enableSig.length := calldataload(sub(enableSig.offset, 32))
@@ -485,7 +499,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
-    function _enableDigest(ValidationId vId, bytes calldata packedData)
+    function _enableDigest(ValidationId vId, bytes calldata packedData, bool isReplayable)
         internal
         view
         returns (
@@ -508,19 +522,19 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             selectorData.offset := add(add(packedData.offset, 52), calldataload(add(packedData.offset, 84)))
             selectorData.length := calldataload(sub(selectorData.offset, 32))
         }
-        digest = _hashTypedData(
-            keccak256(
-                abi.encode(
-                    ENABLE_TYPE_HASH,
-                    ValidationId.unwrap(vId),
-                    state.currentNonce,
-                    config.hook,
-                    keccak256(validatorData),
-                    keccak256(hookData),
-                    keccak256(selectorData)
-                )
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ENABLE_TYPE_HASH,
+                ValidationId.unwrap(vId),
+                state.currentNonce,
+                config.hook,
+                keccak256(validatorData),
+                keccak256(hookData),
+                keccak256(selectorData)
             )
         );
+
+        digest = isReplayable ? _chainAgnosticHashTypedData(structHash) : _hashTypedData(structHash);
     }
 
     struct PermissionSigMemory {

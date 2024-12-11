@@ -105,7 +105,8 @@ abstract contract KernelTestBase is TestPlus, Test {
             isExecutor,
             encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
         _;
@@ -166,11 +167,12 @@ abstract contract KernelTestBase is TestPlus, Test {
         return entrypoint.getNonce(address(kernel), nonceKey);
     }
 
-    function getEnableDigest(ValidationType vType, bool overrideValidation, bytes memory selectorData)
-        internal
-        view
-        returns (bytes32)
-    {
+    function getEnableDigest(
+        ValidationType vType,
+        bool overrideValidation,
+        bytes memory selectorData,
+        bool isReplayable
+    ) internal view returns (bytes32) {
         uint32 nonce = kernel.currentNonce();
         if (overrideValidation) {
             nonce = nonce + 1;
@@ -207,8 +209,13 @@ abstract contract KernelTestBase is TestPlus, Test {
             )
         );
 
-        bytes32 digest =
-            keccak256(abi.encodePacked("\x19\x01", _buildDomainSeparator("Kernel", "0.3.2", address(kernel)), hash));
+        bytes32 digest;
+        if (isReplayable) {
+            digest = _chainAgnosticHashTypedData(address(kernel), "Kernel", "0.3.2", hash);
+        } else {
+            digest =
+                keccak256(abi.encodePacked("\x19\x01", _buildDomainSeparator("Kernel", "0.3.2", address(kernel)), hash));
+        }
 
         return digest;
     }
@@ -251,10 +258,11 @@ abstract contract KernelTestBase is TestPlus, Test {
         bytes memory selectorData,
         PackedUserOperation memory op,
         bool successEnable,
-        bool successUserOp
+        bool successUserOp,
+        bool isReplayable
     ) internal returns (bytes memory) {
         bytes memory enableSig = _rootSignDigest(digest, successEnable);
-        bytes memory userOpSig = _signUserOp(vType, op, successUserOp);
+        bytes memory userOpSig = _signUserOp(vType, op, successUserOp, isReplayable);
         IHook hook;
         bytes memory validatorData;
         bytes memory hookData;
@@ -270,7 +278,7 @@ abstract contract KernelTestBase is TestPlus, Test {
             revert("Invalid validation type");
         }
         return encodeEnableSignature(
-            hook, validatorData, abi.encodePacked(hex"ff", hookData), selectorData, enableSig, userOpSig
+            hook, validatorData, abi.encodePacked(hex"ff", hookData), selectorData, enableSig, userOpSig, isReplayable
         );
     }
 
@@ -280,7 +288,8 @@ abstract contract KernelTestBase is TestPlus, Test {
         bool isExecutor,
         bytes memory callData,
         bool successEnable,
-        bool successUserOp
+        bool successUserOp,
+        bool isReplayable
     ) internal returns (PackedUserOperation memory op) {
         if (isFallback && isExecutor) {
             mockFallback.setExecutorMode(true);
@@ -303,10 +312,14 @@ abstract contract KernelTestBase is TestPlus, Test {
         });
         if (enable) {
             bytes memory selectorData = encodeSelectorData(isFallback, isExecutor);
-            bytes32 digest = getEnableDigest(vType, false, selectorData);
-            op.signature = getEnableSignature(vType, digest, selectorData, op, successEnable, successUserOp);
+            bytes32 digest = getEnableDigest(vType, false, selectorData, isReplayable);
+            op.signature =
+                getEnableSignature(vType, digest, selectorData, op, successEnable, successUserOp, isReplayable);
         } else {
-            op.signature = _signUserOp(vType, op, successUserOp);
+            op.signature = _signUserOp(vType, op, successUserOp, isReplayable);
+        }
+        if (isReplayable) {
+            op.signature = abi.encodePacked(MAGIC_VALUE_SIG_REPLAYABLE, op.signature);
         }
     }
 
@@ -336,7 +349,7 @@ abstract contract KernelTestBase is TestPlus, Test {
     function testDeployWithFactory() external {
         vm.deal(address(kernel), 1e18);
         PackedUserOperation[] memory ops = new PackedUserOperation[](1);
-        ops[0] = _prepareUserOp(VALIDATION_TYPE_ROOT, false, false, hex"", true, true);
+        ops[0] = _prepareUserOp(VALIDATION_TYPE_ROOT, false, false, hex"", true, true, false);
         // _prepareRootUserOp(hex"", true);
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -395,7 +408,8 @@ abstract contract KernelTestBase is TestPlus, Test {
         bytes memory hookData,
         bytes memory selectorData,
         bytes memory enableSig,
-        bytes memory userOpSig
+        bytes memory userOpSig,
+        bool isReplayable
     ) internal pure returns (bytes memory) {
         return abi.encodePacked(
             abi.encodePacked(hook), abi.encode(validatorData, hookData, selectorData, enableSig, userOpSig)
@@ -447,27 +461,36 @@ abstract contract KernelTestBase is TestPlus, Test {
         }
     }
 
-    function _signUserOp(ValidationType vType, PackedUserOperation memory op, bool success)
+    function _signUserOp(ValidationType vType, PackedUserOperation memory op, bool success, bool isReplayable)
         internal
         virtual
-        returns (bytes memory data)
+        returns (bytes memory sig)
     {
-        if (vType == VALIDATION_TYPE_VALIDATOR) {
-            return _validatorSignUserOp(op, success);
-        } else if (vType == VALIDATION_TYPE_PERMISSION) {
-            return _permissionSignUserOp(op, success);
-        } else if (vType == VALIDATION_TYPE_ROOT) {
-            return _rootSignUserOp(op, success);
+        bytes32 userOpHash = entrypoint.getUserOpHash(op);
+        if (isReplayable) {
+            userOpHash = kernel.replayableUserOpHash(op, address(entrypoint));
         }
-        revert("Invalid validation type");
+        if (vType == VALIDATION_TYPE_VALIDATOR) {
+            sig = _validatorSignUserOp(op, userOpHash, success);
+        } else if (vType == VALIDATION_TYPE_PERMISSION) {
+            sig = _permissionSignUserOp(op, userOpHash, success);
+        } else if (vType == VALIDATION_TYPE_ROOT) {
+            sig = _rootSignUserOp(op, userOpHash, success);
+        } else {
+            revert("Invalid validation type");
+        }
     }
 
-    function _rootSignUserOp(PackedUserOperation memory op, bool success) internal virtual returns (bytes memory) {
+    function _rootSignUserOp(PackedUserOperation memory op, bytes32 userOpHash, bool success)
+        internal
+        virtual
+        returns (bytes memory)
+    {
         mockValidator.sudoSetSuccess(success);
         return success ? abi.encodePacked("success") : abi.encodePacked("failure");
     }
 
-    function _validatorSignUserOp(PackedUserOperation memory, bool success)
+    function _validatorSignUserOp(PackedUserOperation memory, bytes32 userOpHash, bool success)
         internal
         virtual
         returns (bytes memory data)
@@ -489,7 +512,7 @@ abstract contract KernelTestBase is TestPlus, Test {
         }
     }
 
-    function _permissionSignUserOp(PackedUserOperation memory op, bool success)
+    function _permissionSignUserOp(PackedUserOperation memory op, bytes32 userOpHash, bool success)
         internal
         virtual
         returns (bytes memory data)
@@ -547,7 +570,29 @@ abstract contract KernelTestBase is TestPlus, Test {
             false,
             encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
             true,
-            success
+            success,
+            false
+        );
+        if (!success) {
+            vm.expectRevert(abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA24 signature error"));
+        }
+        entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
+        if (success) {
+            _rootValidatorSuccessCheck();
+        }
+    }
+
+    function testRootValidateUserReplayable(bool success) external whenInitialized {
+        vm.deal(address(kernel), 1e18);
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = _prepareUserOp(
+            VALIDATION_TYPE_ROOT,
+            false,
+            false,
+            encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
+            true,
+            success,
+            true
         );
         if (!success) {
             vm.expectRevert(abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA24 signature error"));
@@ -609,7 +654,8 @@ abstract contract KernelTestBase is TestPlus, Test {
         bool useFallback,
         bool isExecutor,
         bool enableSuccess,
-        bool userOpSuccess
+        bool userOpSuccess,
+        bool replayable
     ) external whenInitialized {
         vm.assume(vType == VALIDATION_TYPE_VALIDATOR || vType == VALIDATION_TYPE_PERMISSION);
         if (useFallback == false && isExecutor == true) {
@@ -625,7 +671,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 ? abi.encodeWithSelector(MockFallback.setData.selector, 123456)
                 : encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
             enableSuccess,
-            userOpSuccess
+            userOpSuccess,
+            replayable
         );
         if (!enableSuccess) {
             vm.expectRevert(
@@ -707,7 +754,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 )
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -721,7 +769,8 @@ abstract contract KernelTestBase is TestPlus, Test {
             false,
             abi.encodeWithSelector(kernel.uninstallModule.selector, 1, address(validator), hex""),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -766,7 +815,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 )
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -790,7 +840,13 @@ abstract contract KernelTestBase is TestPlus, Test {
             vm.expectRevert();
             MockAction(address(kernel)).doSomething();
             PackedUserOperation memory op = _prepareUserOp(
-                VALIDATION_TYPE_ROOT, false, false, abi.encodeWithSelector(MockAction.doSomething.selector), true, true
+                VALIDATION_TYPE_ROOT,
+                false,
+                false,
+                abi.encodeWithSelector(MockAction.doSomething.selector),
+                true,
+                true,
+                false
             );
             PackedUserOperation[] memory ops = new PackedUserOperation[](1);
             ops[0] = op;
@@ -824,7 +880,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 abi.encodePacked(MockAction.doSomething.selector)
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
 
@@ -855,7 +912,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 )
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -890,7 +948,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 false,
                 abi.encodeWithSelector(MockFallback.fallbackFunction.selector, uint256(10)),
                 true,
-                true
+                true,
+                false
             );
             PackedUserOperation[] memory ops = new PackedUserOperation[](1);
             ops[0] = op;
@@ -922,7 +981,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 abi.encodePacked(MockFallback.fallbackFunction.selector)
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
         SelectorManager.SelectorConfig memory config = kernel.selectorConfig(MockFallback.fallbackFunction.selector);
@@ -949,7 +1009,8 @@ abstract contract KernelTestBase is TestPlus, Test {
                 )
             ),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
     }
@@ -1020,7 +1081,8 @@ abstract contract KernelTestBase is TestPlus, Test {
             false,
             abi.encodeWithSelector(kernel.uninstallModule.selector, 2, address(mockExecutor), hex""),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
         ExecutorManager.ExecutorConfig memory config = kernel.executorConfig(mockExecutor);
@@ -1054,7 +1116,8 @@ abstract contract KernelTestBase is TestPlus, Test {
             false,
             encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
         ValidationManager.ValidationConfig memory config =
@@ -1082,7 +1145,8 @@ abstract contract KernelTestBase is TestPlus, Test {
             false,
             encodeExecute(address(callee), 0, abi.encodeWithSelector(callee.setValue.selector, 123)),
             true,
-            true
+            true,
+            false
         );
         entrypoint.handleOps(ops, payable(address(0xdeadbeef)));
         assertEq(kernel.currentNonce(), 1);
@@ -1117,5 +1181,49 @@ abstract contract KernelTestBase is TestPlus, Test {
         bytes memory data = abi.encode(execs);
         kernel.execute(mode, data);
         assertEq(callee.value(), sum);
+    }
+
+    /// @dev Returns the EIP-712 domain separator.
+    function _buildChainAgnosticDomainSeparator(address addr, string memory name, string memory version)
+        private
+        view
+        returns (bytes32 separator)
+    {
+        // We will use `separator` to store the name hash to save a bit of gas.
+        bytes32 versionHash;
+        separator = keccak256(bytes(name));
+        versionHash = keccak256(bytes(version));
+        bytes32 typeHash =
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+        /// @solidity memory-safe-assembly
+        assembly {
+            let m := mload(0x40) // Load the free memory pointer.
+            mstore(m, typeHash)
+            mstore(add(m, 0x20), separator) // Name hash.
+            mstore(add(m, 0x40), versionHash)
+            mstore(add(m, 0x60), 0x00) //  NOTE : user chainId == 0 as eip 7702 did
+            mstore(add(m, 0x80), addr)
+            separator := keccak256(m, 0xa0)
+        }
+    }
+
+    function _chainAgnosticHashTypedData(address addr, string memory name, string memory version, bytes32 structHash)
+        internal
+        view
+        virtual
+        returns (bytes32 digest)
+    {
+        // we don't do cache stuff here
+        digest = _buildChainAgnosticDomainSeparator(addr, name, version);
+        /// @solidity memory-safe-assembly
+        assembly {
+            // Compute the digest.
+            mstore(0x00, 0x1901000000000000) // Store "\x19\x01".
+            mstore(0x1a, digest) // Store the domain separator.
+            mstore(0x3a, structHash) // Store the struct hash.
+            digest := keccak256(0x18, 0x42)
+            // Restore the part of the free memory slot that was overwritten.
+            mstore(0x3a, 0)
+        }
     }
 }
