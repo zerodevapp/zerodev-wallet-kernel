@@ -251,15 +251,19 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
+    struct PermissionEnableDataFormat {
+        bytes[] data;
+    }
+
     function _installPermission(PermissionId permission, bytes calldata data) internal {
         ValidationStorage storage state = _validationStorage();
-        bytes[] calldata permissionEnableData;
+        PermissionEnableDataFormat calldata permissionEnableData;
         assembly {
-            permissionEnableData.offset := add(add(data.offset, 32), calldataload(data.offset))
-            permissionEnableData.length := calldataload(sub(permissionEnableData.offset, 32))
+            permissionEnableData := data.offset
         }
+        bytes[] calldata data = permissionEnableData.data;
         // allow up to 0xfe, 0xff is dedicated for signer
-        if (permissionEnableData.length > 254 || permissionEnableData.length == 0) {
+        if (data.length > 254 || data.length == 0) {
             revert PolicyDataTooLarge();
         }
 
@@ -268,27 +272,18 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             delete state.permissionConfig[permission].policyData;
         }
         unchecked {
-            for (uint256 i = 0; i < permissionEnableData.length - 1; i++) {
-                state.permissionConfig[permission].policyData.push(
-                    PolicyData.wrap(bytes22(permissionEnableData[i][0:22]))
+            for (uint256 i = 0; i < data.length - 1; i++) {
+                state.permissionConfig[permission].policyData.push(PolicyData.wrap(bytes22(data[i][0:22])));
+                IPolicy(address(bytes20(data[i][2:22]))).onInstall(
+                    abi.encodePacked(bytes32(PermissionId.unwrap(permission)), data[i][22:])
                 );
-                IPolicy(address(bytes20(permissionEnableData[i][2:22]))).onInstall(
-                    abi.encodePacked(bytes32(PermissionId.unwrap(permission)), permissionEnableData[i][22:])
-                );
-                emit IERC7579Account.ModuleInstalled(
-                    MODULE_TYPE_POLICY, address(bytes20(permissionEnableData[i][2:22]))
-                );
+                emit IERC7579Account.ModuleInstalled(MODULE_TYPE_POLICY, address(bytes20(data[i][2:22])));
             }
             // last permission data will be signer
-            ISigner signer = ISigner(address(bytes20(permissionEnableData[permissionEnableData.length - 1][2:22])));
+            ISigner signer = ISigner(address(bytes20(data[data.length - 1][2:22])));
             state.permissionConfig[permission].signer = signer;
-            state.permissionConfig[permission].permissionFlag =
-                PassFlag.wrap(bytes2(permissionEnableData[permissionEnableData.length - 1][0:2]));
-            signer.onInstall(
-                abi.encodePacked(
-                    bytes32(PermissionId.unwrap(permission)), permissionEnableData[permissionEnableData.length - 1][22:]
-                )
-            );
+            state.permissionConfig[permission].permissionFlag = PassFlag.wrap(bytes2(data[data.length - 1][0:2]));
+            signer.onInstall(abi.encodePacked(bytes32(PermissionId.unwrap(permission)), data[data.length - 1][22:]));
             emit IERC7579Account.ModuleInstalled(MODULE_TYPE_SIGNER, address(signer));
         }
     }
@@ -372,24 +367,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
                 uint256(0)
             )
         );
-    }
-
-    function calldataKeccak(bytes calldata data) internal pure returns (bytes32 ret) {
-        assembly ("memory-safe") {
-            let mem := mload(0x40)
-            let len := data.length
-            calldatacopy(mem, data.offset, len)
-            ret := keccak256(mem, len)
-        }
-    }
-
-    function getSender(PackedUserOperation calldata userOp) internal pure returns (address) {
-        address data;
-        //read sender from userOp, which is first userOp member (saves 800 gas...)
-        assembly {
-            data := calldataload(userOp)
-        }
-        return address(uint160(data));
     }
 
     struct UserOpSigDataFormatEnable {
@@ -506,9 +483,9 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
                 ValidationId.unwrap(vId),
                 state.currentNonce,
                 config.hook,
-                keccak256(enableData.validatorData),
-                keccak256(enableData.hookData),
-                keccak256(enableData.selectorData)
+                calldataKeccak(enableData.validatorData),
+                calldataKeccak(enableData.hookData),
+                calldataKeccak(enableData.selectorData)
             )
         );
 
@@ -644,6 +621,24 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
     function _toWrappedHash(bytes32 hash, bool isReplayable) internal view returns (bytes32) {
         bytes32 structHash = keccak256(abi.encode(KERNEL_WRAPPER_TYPE_HASH, hash));
         return isReplayable ? _chainAgnosticHashTypedData(structHash) : _hashTypedData(structHash);
+    }
+
+    function calldataKeccak(bytes calldata data) internal pure returns (bytes32 ret) {
+        assembly ("memory-safe") {
+            let mem := mload(0x40)
+            let len := data.length
+            calldatacopy(mem, data.offset, len)
+            ret := keccak256(mem, len)
+        }
+    }
+
+    function getSender(PackedUserOperation calldata userOp) internal pure returns (address) {
+        address data;
+        //read sender from userOp, which is first userOp member (saves 800 gas...)
+        assembly {
+            data := calldataload(userOp)
+        }
+        return address(uint160(data));
     }
 
     /// @dev Returns the EIP-712 domain separator.
