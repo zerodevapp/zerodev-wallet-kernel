@@ -24,6 +24,14 @@ import {CALLTYPE_SINGLE, MODULE_TYPE_POLICY, MODULE_TYPE_SIGNER, MODULE_TYPE_VAL
 
 import {PermissionId, getValidationResult, CallType} from "../types/Types.sol";
 import {_intersectValidationData} from "../utils/KernelValidationResult.sol";
+import {
+    PermissionSigMemory,
+    PermissionDisableDataFormat,
+    PermissionEnableDataFormat,
+    UserOpSigDataFormatEnable,
+    SelectorDataFormat,
+    SelectorDataFormatWithExecutorData
+} from "../types/Structs.sol";
 
 import {
     VALIDATION_MODE_DEFAULT,
@@ -183,10 +191,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
-    struct PermissionDisableDataFormat {
-        bytes[] data;
-    }
-
     function _uninstallPermission(PermissionId pId, bytes calldata data) internal {
         PermissionDisableDataFormat calldata permissionDisableData;
         assembly {
@@ -252,10 +256,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         } else {
             revert InvalidValidationType();
         }
-    }
-
-    struct PermissionEnableDataFormat {
-        bytes[] data;
     }
 
     function _installPermission(PermissionId permission, bytes calldata permissionData) internal {
@@ -372,14 +372,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         );
     }
 
-    struct UserOpSigDataFormatEnable {
-        bytes validatorData;
-        bytes hookData;
-        bytes selectorData;
-        bytes enableSig;
-        bytes userOpSig;
-    }
-
     function _enableMode(ValidationId vId, bytes calldata packedData, bool isReplayable)
         internal
         returns (ValidationData validationData, bytes calldata userOpSig)
@@ -429,17 +421,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         if (result != 0x1626ba7e) {
             revert EnableNotApproved();
         }
-    }
-
-    struct SelectorDataFormat {
-        bytes selectorInitData;
-        bytes hookInitData;
-    }
-
-    struct SelectorDataFormatWithExecutorData {
-        bytes selectorInitData;
-        bytes hookInitData;
-        bytes executorHookData;
     }
 
     function _configureSelector(bytes calldata selectorData) internal {
@@ -494,7 +475,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             abi.encode(
                 ENABLE_TYPE_HASH,
                 ValidationId.unwrap(vId),
-                state.currentNonce,
+                config.nonce,
                 config.hook,
                 calldataKeccak(enableData.validatorData),
                 calldataKeccak(enableData.hookData),
@@ -503,18 +484,6 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         );
 
         digest = isReplayable ? _chainAgnosticHashTypedData(structHash) : _hashTypedData(structHash);
-    }
-
-    struct PermissionSigMemory {
-        uint8 idx;
-        uint256 length;
-        ValidationData validationData;
-        PermissionId permission;
-        PassFlag flag;
-        IPolicy policy;
-        bytes permSig;
-        address caller;
-        bytes32 digest;
     }
 
     function _checkUserOpPolicy(PermissionId pId, PackedUserOperation memory userOp, bytes calldata userOpSig)
