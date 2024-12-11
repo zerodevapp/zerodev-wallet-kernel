@@ -37,14 +37,13 @@ contract ECDSAValidatorTest is KernelTestBase {
         return sig;
     }
 
-    function _rootSignUserOp(PackedUserOperation memory op, bool success)
+    function _rootSignUserOp(PackedUserOperation memory op, bytes32 userOpHash, bool success)
         internal
         view
         override
         returns (bytes memory)
     {
-        bytes32 hash = entrypoint.getUserOpHash(op);
-        return _rootSignDigest(hash, success);
+        return _rootSignDigest(userOpHash, success);
     }
 
     function testExternalInteraction() external whenInitialized {
@@ -112,7 +111,8 @@ contract ECDSAValidatorTest is KernelTestBase {
             abi.encodePacked(bytes1(0xff), validationConfig.hookData),
             abi.encodePacked(kernel.execute.selector),
             _rootSignDigest(digest, true),
-            _rootSignUserOp(op, true)
+            _rootSignUserOp(op, entrypoint.getUserOpHash(op), true),
+            false
         );
     }
 }

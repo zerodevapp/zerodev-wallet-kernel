@@ -32,7 +32,7 @@ abstract contract ExecutorManager {
     function _installExecutor(IExecutor executor, bytes calldata executorData, IHook hook) internal {
         _installExecutorWithoutInit(executor, hook);
         if (executorData.length == 0) {
-            (bool success,) = address(executor).call(abi.encodeWithSelector(IModule.onInstall.selector, hex""));
+            (bool success,) = address(executor).call(abi.encodeWithSelector(IModule.onInstall.selector, hex"")); // ignore return value
         } else {
             executor.onInstall(executorData);
         }

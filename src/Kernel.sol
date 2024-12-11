@@ -44,6 +44,8 @@ import {
     MAGIC_VALUE_SIG_REPLAYABLE
 } from "./types/Constants.sol";
 
+import {InstallExecutorDataFormat, InstallFallbackDataFormat, InstallValidatorDataFormat} from "./types/Structs.sol";
+
 contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager {
     error ExecutionReverted();
     error InvalidExecutor();
@@ -357,45 +359,30 @@ contract Kernel is IAccount, IAccountExecute, IERC7579Account, ValidationManager
             }
             ValidationConfig memory config =
                 ValidationConfig({nonce: vs.currentNonce, hook: IHook(address(bytes20(initData[0:20])))});
-            bytes calldata validatorData;
-            bytes calldata hookData;
-            bytes calldata selectorData;
+            InstallValidatorDataFormat calldata data;
             assembly {
-                validatorData.offset := add(add(initData.offset, 52), calldataload(add(initData.offset, 20)))
-                validatorData.length := calldataload(sub(validatorData.offset, 32))
-                hookData.offset := add(add(initData.offset, 52), calldataload(add(initData.offset, 52)))
-                hookData.length := calldataload(sub(hookData.offset, 32))
-                selectorData.offset := add(add(initData.offset, 52), calldataload(add(initData.offset, 84)))
-                selectorData.length := calldataload(sub(selectorData.offset, 32))
+                data := add(initData.offset, 20)
             }
-            _installValidation(vId, config, validatorData, hookData);
-            if (selectorData.length == 4) {
+            _installValidation(vId, config, data.validatorData, data.hookData);
+            if (data.selectorData.length == 4) {
                 // NOTE: we don't allow configure on selector data on v3.1+, but using bytes instead of bytes4 for selector data to make sure we are future proof
-                _setSelector(vId, bytes4(selectorData[0:4]), true);
+                _setSelector(vId, bytes4(data.selectorData[0:4]), true);
             }
         } else if (moduleType == MODULE_TYPE_EXECUTOR) {
-            bytes calldata executorData;
-            bytes calldata hookData;
+            InstallExecutorDataFormat calldata data;
             assembly {
-                executorData.offset := add(add(initData.offset, 52), calldataload(add(initData.offset, 20)))
-                executorData.length := calldataload(sub(executorData.offset, 32))
-                hookData.offset := add(add(initData.offset, 52), calldataload(add(initData.offset, 52)))
-                hookData.length := calldataload(sub(hookData.offset, 32))
+                data := add(initData.offset, 20)
             }
             IHook hook = IHook(address(bytes20(initData[0:20])));
-            _installExecutor(IExecutor(module), executorData, hook);
-            _installHook(hook, hookData);
+            _installExecutor(IExecutor(module), data.executorData, hook);
+            _installHook(hook, data.hookData);
         } else if (moduleType == MODULE_TYPE_FALLBACK) {
-            bytes calldata selectorData;
-            bytes calldata hookData;
+            InstallFallbackDataFormat calldata data;
             assembly {
-                selectorData.offset := add(add(initData.offset, 56), calldataload(add(initData.offset, 24)))
-                selectorData.length := calldataload(sub(selectorData.offset, 32))
-                hookData.offset := add(add(initData.offset, 56), calldataload(add(initData.offset, 56)))
-                hookData.length := calldataload(sub(hookData.offset, 32))
+                data := add(initData.offset, 24)
             }
-            _installSelector(bytes4(initData[0:4]), module, IHook(address(bytes20(initData[4:24]))), selectorData);
-            _installHook(IHook(address(bytes20(initData[4:24]))), hookData);
+            _installSelector(bytes4(initData[0:4]), module, IHook(address(bytes20(initData[4:24]))), data.selectorData);
+            _installHook(IHook(address(bytes20(initData[4:24]))), data.hookData);
         } else if (moduleType == MODULE_TYPE_HOOK) {
             // force call onInstall for hook
             // NOTE: for hook, kernel does not support independent hook install,
