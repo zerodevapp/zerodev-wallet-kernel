@@ -183,22 +183,25 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
+    struct PermissionDisableDataFormat {
+        bytes[] data;
+    }
+
     function _uninstallPermission(PermissionId pId, bytes calldata data) internal {
-        bytes[] calldata permissionDisableData;
+        PermissionDisableDataFormat calldata permissionDisableData;
         assembly {
-            permissionDisableData.offset := add(add(data.offset, 32), calldataload(data.offset))
-            permissionDisableData.length := calldataload(sub(permissionDisableData.offset, 32))
+            permissionDisableData := data.offset
         }
         PermissionConfig storage config = _validationStorage().permissionConfig[pId];
         unchecked {
-            if (permissionDisableData.length != config.policyData.length + 1) {
+            if (permissionDisableData.data.length != config.policyData.length + 1) {
                 revert PermissionDataLengthMismatch();
             }
             PolicyData[] storage policyData = config.policyData;
             for (uint256 i = 0; i < policyData.length; i++) {
                 (, IPolicy policy) = ValidatorLib.decodePolicyData(policyData[i]);
                 ModuleLib.uninstallModule(
-                    address(policy), abi.encodePacked(bytes32(PermissionId.unwrap(pId)), permissionDisableData[i])
+                    address(policy), abi.encodePacked(bytes32(PermissionId.unwrap(pId)), permissionDisableData.data[i])
                 );
                 emit IERC7579Account.ModuleUninstalled(MODULE_TYPE_POLICY, address(policy));
             }
@@ -206,7 +209,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
             ModuleLib.uninstallModule(
                 address(config.signer),
                 abi.encodePacked(
-                    bytes32(PermissionId.unwrap(pId)), permissionDisableData[permissionDisableData.length - 1]
+                    bytes32(PermissionId.unwrap(pId)), permissionDisableData.data[permissionDisableData.data.length - 1]
                 )
             );
             emit IERC7579Account.ModuleUninstalled(MODULE_TYPE_SIGNER, address(config.signer));
@@ -255,11 +258,11 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         bytes[] data;
     }
 
-    function _installPermission(PermissionId permission, bytes calldata data) internal {
+    function _installPermission(PermissionId permission, bytes calldata permissionData) internal {
         ValidationStorage storage state = _validationStorage();
         PermissionEnableDataFormat calldata permissionEnableData;
         assembly {
-            permissionEnableData := data.offset
+            permissionEnableData := permissionData.offset
         }
         bytes[] calldata data = permissionEnableData.data;
         // allow up to 0xfe, 0xff is dedicated for signer
@@ -428,38 +431,48 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         }
     }
 
+    struct SelectorDataFormat {
+        bytes selectorInitData;
+        bytes hookInitData;
+    }
+
+    struct SelectorDataFormatWithExecutorData {
+        bytes selectorInitData;
+        bytes hookInitData;
+        bytes executorHookData;
+    }
+
     function _configureSelector(bytes calldata selectorData) internal {
         bytes4 selector = bytes4(selectorData[0:4]);
+
         if (selectorData.length >= 4) {
             if (selectorData.length >= 44) {
-                // install selector with hook and target contract
-                bytes calldata selectorInitData;
-                bytes calldata hookInitData;
-                IModule selectorModule = IModule(address(bytes20(selectorData[4:24])));
+                SelectorDataFormat calldata data;
                 assembly {
-                    selectorInitData.offset :=
-                        add(add(selectorData.offset, 76), calldataload(add(selectorData.offset, 44)))
-                    selectorInitData.length := calldataload(sub(selectorInitData.offset, 32))
-                    hookInitData.offset := add(add(selectorData.offset, 76), calldataload(add(selectorData.offset, 76)))
-                    hookInitData.length := calldataload(sub(hookInitData.offset, 32))
+                    data := add(selectorData.offset, 44)
                 }
-                if (CallType.wrap(bytes1(selectorInitData[0])) == CALLTYPE_SINGLE && selectorModule.isModuleType(2)) {
+                // install selector with hook and target contract
+                IModule selectorModule = IModule(address(bytes20(selectorData[4:24])));
+                if (
+                    CallType.wrap(bytes1(data.selectorInitData[0])) == CALLTYPE_SINGLE && selectorModule.isModuleType(2)
+                ) {
                     // also adds as executor when fallback module is also a executor
-                    bytes calldata executorHookData;
+                    SelectorDataFormatWithExecutorData calldata dataWithExecutor;
                     assembly {
-                        executorHookData.offset :=
-                            add(add(selectorData.offset, 76), calldataload(add(selectorData.offset, 108)))
-                        executorHookData.length := calldataload(sub(executorHookData.offset, 32))
+                        dataWithExecutor := data
                     }
-                    IHook executorHook = IHook(address(bytes20(executorHookData[0:20])));
+                    IHook executorHook = IHook(address(bytes20(dataWithExecutor.executorHookData[0:20])));
                     // if module is also executor, install as executor
                     _installExecutorWithoutInit(IExecutor(address(selectorModule)), executorHook);
-                    _installHook(executorHook, executorHookData[20:]);
+                    _installHook(executorHook, dataWithExecutor.executorHookData[20:]);
                 }
                 _installSelector(
-                    selector, address(selectorModule), IHook(address(bytes20(selectorData[24:44]))), selectorInitData
+                    selector,
+                    address(selectorModule),
+                    IHook(address(bytes20(selectorData[24:44]))),
+                    data.selectorInitData
                 );
-                _installHook(IHook(address(bytes20(selectorData[24:44]))), hookInitData);
+                _installHook(IHook(address(bytes20(selectorData[24:44]))), data.hookInitData);
             } else {
                 // set without install
                 require(selectorData.length == 4, "Invalid selectorData");
