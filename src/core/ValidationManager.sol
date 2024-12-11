@@ -28,7 +28,7 @@ import {
     PermissionSigMemory,
     PermissionDisableDataFormat,
     PermissionEnableDataFormat,
-    UserOpSigDataFormatEnable,
+    UserOpSigEnableDataFormat,
     SelectorDataFormat,
     SelectorDataFormatWithExecutorData
 } from "../types/Structs.sol";
@@ -376,7 +376,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
         internal
         returns (ValidationData validationData, bytes calldata userOpSig)
     {
-        UserOpSigDataFormatEnable calldata enableData;
+        UserOpSigEnableDataFormat calldata enableData;
         assembly {
             enableData := add(packedData.offset, 20)
         }
@@ -389,7 +389,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
     function _enableValidationWithSig(
         ValidationId vId,
         address hook,
-        UserOpSigDataFormatEnable calldata enableData,
+        UserOpSigEnableDataFormat calldata enableData,
         bool isReplayable
     ) internal returns (ValidationData validationData) {
         (ValidationConfig memory config, bytes32 digest) = _enableDigest(vId, hook, enableData, isReplayable);
@@ -464,7 +464,7 @@ abstract contract ValidationManager is EIP712, SelectorManager, HookManager, Exe
     function _enableDigest(
         ValidationId vId,
         address hook,
-        UserOpSigDataFormatEnable calldata enableData,
+        UserOpSigEnableDataFormat calldata enableData,
         bool isReplayable
     ) internal view returns (ValidationConfig memory config, bytes32 digest) {
         ValidationStorage storage state = _validationStorage();

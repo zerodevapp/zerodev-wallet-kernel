@@ -31,7 +31,7 @@ struct PermissionEnableDataFormat {
     bytes[] data;
 }
 
-struct UserOpSigDataFormatEnable {
+struct UserOpSigEnableDataFormat {
     bytes validatorData;
     bytes hookData;
     bytes selectorData;
@@ -49,3 +49,19 @@ struct SelectorDataFormatWithExecutorData {
     bytes hookInitData;
     bytes executorHookData;
 }
+struct InstallValidatorDataFormat {
+    bytes validatorData;
+    bytes hookData;
+    bytes selectorData;
+}
+
+struct InstallExecutorDataFormat {
+    bytes executorData;
+    bytes hookData;
+}
+
+struct InstallFallbackDataFormat {
+    bytes selectorData;
+    bytes hookData;
+}
+
